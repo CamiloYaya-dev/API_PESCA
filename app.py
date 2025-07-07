@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, Response
 import mysql.connector
 import os
 import json
@@ -6,17 +6,15 @@ from dotenv import load_dotenv
 
 app = Flask(__name__)
 
-# Cargar variables de entorno desde .env
 load_dotenv()
 
-# Configuración desde entorno
 API_KEY = os.getenv("API_KEY")
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_USER = os.getenv("DB_USER", "root")
-DB_PASS = os.getenv("DB_PASS", "")
-DB_NAME = os.getenv("DB_NAME", "licencias_bot")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = int(os.getenv("DB_PORT"))
+DB_USER = os.getenv("DB_USER")
+DB_PASS = os.getenv("DB_PASS")
+DB_NAME = os.getenv("DB_NAME")
 
-# Archivos a servir
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 IMG_PATH = os.path.join(BASE_DIR, "archivos", "3ZuxE7bre0kypSqM76n5dkak7zZBu0")
@@ -39,6 +37,7 @@ def validar_licencia():
 
     conn = mysql.connector.connect(
         host=DB_HOST,
+        port=DB_PORT,
         user=DB_USER,
         password=DB_PASS,
         database=DB_NAME
@@ -54,16 +53,30 @@ def validar_licencia():
     else:
         return jsonify({"status": "invalido", "mensaje": "Llave no autorizada o expirada"})
 
+def generar_stream(path, chunk_size=16*1024*1024):
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
 @app.route("/descargar/img", methods=["GET"])
 def descargar_img():
     api_key = request.headers.get("x-api-key")
     if not api_key or not validar_api_key(api_key):
         return jsonify({"status": "error", "mensaje": "API key inválida"}), 401
 
-    if not os.path.exists(IMG_PATH):
-        return jsonify({"status": "error", "mensaje": "Archivo no encontrado"}), 404
-
-    return send_file(IMG_PATH, as_attachment=True)
+    nombre_archivo = "3ZuxE7bre0kypSqM76n5dkak7zZBu0"
+    ruta_nginx = f"/archivos_privados/{nombre_archivo}"
+    return Response(
+        status=200,
+        headers={
+            "Content-Disposition": f"attachment; filename={nombre_archivo}",
+            "X-Accel-Redirect": ruta_nginx,
+            "Content-Type": "application/octet-stream"
+        }
+    )
 
 @app.route("/descargar/zip", methods=["GET"])
 def descargar_zip():
@@ -88,5 +101,9 @@ def verificar_actualizacion():
     except Exception as e:
         return jsonify({"status": "error", "mensaje": f"Error leyendo archivo de actualización: {str(e)}"}), 500
 
+@app.route("/__version__")
+def version():
+    return jsonify({"versión": "7-julio-2025", "estado": "ok"})
+
 if __name__ == "__main__":
-    app.run(port=5000)
+    app.run(port=5000, threaded=True)
