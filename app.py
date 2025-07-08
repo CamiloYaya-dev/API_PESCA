@@ -3,6 +3,7 @@ import mysql.connector
 import os
 import json
 from dotenv import load_dotenv
+import logging
 
 app = Flask(__name__)
 
@@ -17,42 +18,68 @@ DB_NAME = os.getenv("DB_NAME")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-IMG_PATH = os.path.join(BASE_DIR, "archivos", "3ZuxE7bre0kypSqM76n5dkak7zZBu0")
 ZIP_PATH = os.path.join(BASE_DIR, "archivos", "archivos_origins.zip")
 
 def validar_api_key(api_key):
     return api_key == API_KEY
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(os.path.join(BASE_DIR, "validaciones.log")),
+        logging.StreamHandler()
+    ]
+)
+
 @app.route("/validar", methods=["POST"])
 def validar_licencia():
-    api_key = request.headers.get("x-api-key")
-    data = request.json
+    try:
+        api_key = request.headers.get("x-api-key")
+        data = request.get_json(force=True)
+        ip = request.remote_addr
 
-    if not api_key or not validar_api_key(api_key):
-        return jsonify({"status": "error", "mensaje": "API key inválida"}), 401
+        logging.info("Solicitud /validar desde IP %s", ip)
+        logging.info("Headers: %s", dict(request.headers))
+        logging.info("Body recibido: %s", data)
 
-    clave = data.get("clave")
-    if not clave:
-        return jsonify({"status": "error", "mensaje": "Falta la clave"}), 400
+        if not api_key:
+            logging.warning("API key ausente desde IP %s", ip)
+            return jsonify({"status": "error", "mensaje": "API key inválida"}), 401
 
-    conn = mysql.connector.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        user=DB_USER,
-        password=DB_PASS,
-        database=DB_NAME
-    )
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT usuario FROM licencias WHERE clave=%s AND activa=1", (clave,))
-    fila = cursor.fetchone()
-    cursor.close()
-    conn.close()
+        if not validar_api_key(api_key):
+            logging.warning("API key inválida '%s' desde IP %s", api_key, ip)
+            return jsonify({"status": "error", "mensaje": "API key inválida"}), 401
 
-    if fila:
-        return jsonify({"status": "valido", "usuario": fila["usuario"]})
-    else:
-        return jsonify({"status": "invalido", "mensaje": "Llave no autorizada o expirada"})
+        clave = data.get("clave")
+        if not clave:
+            logging.warning("Clave ausente desde IP %s", ip)
+            return jsonify({"status": "error", "mensaje": "Falta la clave"}), 400
 
+        conn = mysql.connector.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            user=DB_USER,
+            password=DB_PASS,
+            database=DB_NAME
+        )
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT usuario FROM licencias WHERE clave=%s AND activa=1", (clave,))
+        fila = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if fila:
+            logging.info("✅ Licencia válida para usuario '%s' desde IP %s", fila["usuario"], ip)
+            return jsonify({"status": "valido", "usuario": fila["usuario"]})
+        else:
+            logging.info("🚫 Licencia inválida '%s' desde IP %s", clave, ip)
+            return jsonify({"status": "invalido", "mensaje": "Llave no autorizada o expirada"})
+
+    except Exception as e:
+        logging.exception("💥 Error inesperado al procesar /validar desde IP %s: %s", request.remote_addr, str(e))
+        return jsonify({"status": "error", "mensaje": "Error interno del servidor"}), 500
+    
 def generar_stream(path, chunk_size=16*1024*1024):
     with open(path, "rb") as f:
         while True:
