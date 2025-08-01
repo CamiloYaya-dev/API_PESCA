@@ -172,6 +172,6 @@ graph TD
 
 ## 📞 Contacto
 
-Para dudas o reportes puedes contactar al desarrollador.
-Camilo Yaya
-https://www.linkedin.com/in/camiloandresyayapoveda/
+- Para dudas o reportes puedes contactar al desarrollador.
+- Camilo Yaya
+- https://www.linkedin.com/in/camiloandresyayapoveda/
